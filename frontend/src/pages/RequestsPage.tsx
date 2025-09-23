@@ -204,7 +204,7 @@ export default function RequestsPage() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(20);
       doc.setTextColor(30, 41, 59);
-      doc.text('Golden Grain Mill', pageWidth / 2, y, { align: 'center' });
+      doc.text('Inventory Project', pageWidth / 2, y, { align: 'center' });
       y += 18;
 
       doc.setFont('helvetica', 'normal');
