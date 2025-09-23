@@ -1,5 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Minus, Package, AlertTriangle, CheckCircle2, XCircle, Pencil, Trash2, Search } from 'lucide-react';
+import {
+  Plus,
+  Minus,
+  Package,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Pencil,
+  Trash2,
+  Search,
+  CalendarDays,
+  Boxes,
+} from 'lucide-react';
 import { api } from '../lib/api';
 import { StockDTO, StockUpsert, clean } from '../types/dto';
 import Modal from '../components/Modal';
@@ -24,9 +36,7 @@ function ToastStack({ toasts }: { toasts: Toast[] }) {
           <div
             key={t.id}
             className={`w-[320px] rounded-xl border p-3 backdrop-blur shadow-lg ${
-              ok
-                ? 'bg-white/90 border-emerald-200'
-                : 'bg-white/90 border-rose-200'
+              ok ? 'bg-white/90 border-emerald-200' : 'bg-white/90 border-rose-200'
             }`}
           >
             <div className="flex items-start gap-2">
@@ -37,9 +47,7 @@ function ToastStack({ toasts }: { toasts: Toast[] }) {
               )}
               <div>
                 <div className="font-semibold text-slate-900">{t.title}</div>
-                {t.desc ? (
-                  <div className="text-xs text-slate-600 mt-0.5">{t.desc}</div>
-                ) : null}
+                {t.desc ? <div className="text-xs text-slate-600 mt-0.5">{t.desc}</div> : null}
               </div>
             </div>
           </div>
@@ -72,6 +80,9 @@ export default function InventoryPage() {
   }>({});
 
   const { toasts, push } = useToasts();
+
+  // ----- Unit dropdown options -----
+  const UNIT_OPTIONS = ['pieces', 'kg', 'g', 'liters', 'packs'];
 
   async function load() {
     setLoading(true);
@@ -169,9 +180,79 @@ export default function InventoryPage() {
     return list.filter((i) => i.itemName.toLowerCase().includes(s) || (i.category ?? '').toLowerCase().includes(s));
   }, [list, q]);
 
+  // ---------- Analysis section metrics ----------
+  const ANALYSIS_DAYS = 30;
+  const analysis = useMemo(() => {
+    const now = new Date();
+    const nearCutoff = new Date(now);
+    nearCutoff.setDate(now.getDate() + ANALYSIS_DAYS);
+
+    let total = list.length;
+    let low = 0;
+    let expired = 0;
+    let near = 0;
+    const categories = new Set<string>();
+
+    for (const r of list) {
+      if (r.category) categories.add(r.category);
+      if (r.quantity <= r.threshold) low++;
+      if (r.expiryDate) {
+        const d = new Date(r.expiryDate);
+        if (d < now) expired++;
+        else if (d >= now && d <= nearCutoff) near++;
+      }
+    }
+    return {
+      total,
+      low,
+      expired,
+      near,
+      categoryCount: categories.size,
+    };
+  }, [list]);
+
   return (
     <div className="min-h-[calc(100vh-64px)] bg-gradient-to-b from-sky-50 via-white to-sky-50">
       <div className="max-w-7xl mx-auto p-6">
+        {/* Analysis section */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow transition">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-slate-500">Total Items</div>
+              <div className="p-2 rounded-lg bg-sky-100 text-sky-700"><Boxes className="w-4 h-4" /></div>
+            </div>
+            <div className="mt-2 text-2xl font-semibold text-slate-900">{analysis.total}</div>
+            <div className="text-xs text-slate-500 mt-1">{analysis.categoryCount} categories</div>
+          </div>
+
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm hover:shadow transition">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-amber-800">Low Stock</div>
+              <div className="p-2 rounded-lg bg-white/70 text-amber-700"><AlertTriangle className="w-4 h-4" /></div>
+            </div>
+            <div className="mt-2 text-2xl font-semibold text-amber-900">{analysis.low}</div>
+            <div className="text-xs text-amber-800 mt-1">Qty ≤ Min</div>
+          </div>
+
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 shadow-sm hover:shadow transition">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-rose-800">Expired</div>
+              <div className="p-2 rounded-lg bg-white/70 text-rose-700"><CalendarDays className="w-4 h-4" /></div>
+            </div>
+            <div className="mt-2 text-2xl font-semibold text-rose-900">{analysis.expired}</div>
+            <div className="text-xs text-rose-800 mt-1">Past expiry</div>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm hover:shadow transition">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-emerald-800">Expiring Soon</div>
+              <div className="p-2 rounded-lg bg-white/70 text-emerald-700"><CalendarDays className="w-4 h-4" /></div>
+            </div>
+            <div className="mt-2 text-2xl font-semibold text-emerald-900">{analysis.near}</div>
+            <div className="text-xs text-emerald-800 mt-1">Within {ANALYSIS_DAYS} days</div>
+          </div>
+        </div>
+
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-sky-100 text-sky-700">
@@ -309,14 +390,24 @@ export default function InventoryPage() {
               />
             </label>
 
+            {/* Unit as dropdown (5 options) */}
             <label className="flex flex-col text-sm">
               <span className="text-gray-600 mb-1">Unit</span>
-              <input
+              <select
                 className={`border rounded-lg px-3 py-2 ${fieldErrors.unit ? 'border-rose-300' : ''}`}
                 value={form.unit || ''}
                 onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value || null }))}
-                placeholder="kg / liters / pieces"
-              />
+              >
+                {/* Ensure current unit is selectable even if not in defaults */}
+                {!UNIT_OPTIONS.includes((form.unit || '').toString()) && form.unit ? (
+                  <option value={form.unit}>{form.unit}</option>
+                ) : null}
+                {UNIT_OPTIONS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
               {fieldErrors.unit && <span className="text-rose-600 text-xs mt-1">{fieldErrors.unit}</span>}
             </label>
 
