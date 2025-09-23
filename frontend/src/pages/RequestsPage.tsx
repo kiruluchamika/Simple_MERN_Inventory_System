@@ -15,9 +15,38 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
+  MessageCircle,
 } from 'lucide-react';
 
 type ItemInput = { name: string; category?: string; quantity: number; unit?: string };
+
+/* ---------------- Tiny Toasts (success / error messages) ---------------- */
+type Toast = { id: string; title: string; desc?: string };
+function useToasts() {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const push = (t: Omit<Toast, 'id'>) => {
+    const id = crypto.randomUUID();
+    setToasts((prev) => [...prev, { id, ...t }]);
+    setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== id)), 2800);
+  };
+  return { toasts, push };
+}
+function ToastStack({ toasts }: { toasts: Toast[] }) {
+  return (
+    <div className="fixed bottom-4 right-4 z-[60] space-y-2">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className="w-[320px] rounded-xl border border-sky-200 bg-white/90 backdrop-blur shadow-lg p-3"
+        >
+          <div className="font-semibold text-gray-900">{t.title}</div>
+          {t.desc ? <div className="text-xs text-gray-600 mt-0.5">{t.desc}</div> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+/* ----------------------------------------------------------------------- */
 
 export default function RequestsPage() {
   const [suppliers, setSuppliers] = useState<SupplierDTO[]>([]);
@@ -39,6 +68,8 @@ export default function RequestsPage() {
     items?: Array<{ name?: string; quantity?: string; unit?: string; category?: string }>;
     notes?: string;
   }>({});
+
+  const { toasts, push } = useToasts();
 
   async function load() {
     setError('');
@@ -88,7 +119,6 @@ export default function RequestsPage() {
     if (items.length === 0) {
       errs.items = [{ name: 'Add at least one item.' }];
     } else if (items.some((it) => !it.name && !it.quantity && !it.unit)) {
-      // prune empty rows via UI, but flag if present
       errs.items = (errs.items || []);
       errs.items[0] = { ...(errs.items[0] || {}), name: 'Remove empty item rows.' };
     }
@@ -108,7 +138,6 @@ export default function RequestsPage() {
       errs.notes = 'Notes must be 500 characters or less.';
     }
 
-    // if no item-level errors actually present, clear items key
     const hasItemError = (errs.items || []).some((e) => Object.keys(e).length > 0);
     if (!hasItemError) delete errs.items;
 
@@ -129,18 +158,33 @@ export default function RequestsPage() {
       });
       setList(prev => [created, ...prev]);
       setOpen(false);
+
+      // Auto-refresh after adding request (ensures latest server state)
+      await load();
+
+      // Success message
+      push({ title: 'Request submitted successfully', desc: 'Your supplier request has been created.' });
+
+      // Optional: if user checked "send email", we keep backend behavior; user can also use quick actions on the row (Email / WhatsApp)
+    } catch (e: any) {
+      push({ title: 'Failed to submit request', desc: e?.message ?? 'Network error' });
     } finally {
       setSaving(false);
     }
   }
 
   // ---------- Helpers ----------
-  function prettySupplier(s: SupplierRequestDTO['supplier']): { name: string; company?: string; email?: string } {
+  function prettySupplier(s: SupplierRequestDTO['supplier']): { name: string; company?: string; email?: string; phone?: string } {
     if (s && typeof s === 'object') {
       const anyS = s as any;
-      return { name: anyS.name ?? 'Unnamed', company: anyS.company ?? '', email: anyS.email ?? anyS.contactEmail ?? '' };
+      return {
+        name: anyS.name ?? 'Unnamed',
+        company: anyS.company ?? '',
+        email: anyS.email ?? anyS.contactEmail ?? '',
+        phone: anyS.phone ?? anyS.contactNumber ?? anyS.mobile ?? anyS.whatsapp ?? ''
+      };
     }
-    return { name: '-', company: '', email: '' };
+    return { name: '-', company: '', email: '', phone: '' };
   }
 
   function statusBadge(status?: string) {
@@ -161,6 +205,47 @@ export default function RequestsPage() {
         {st}
       </span>
     );
+  }
+
+  /* --------- “Efficient” Email + WhatsApp compose helpers (per row) --------- */
+  function itemsAsLines(r: SupplierRequestDTO) {
+    return (r.items ?? [])
+      .map(i => `• ${i.name}${i.category ? ` [${i.category}]` : ''} ×${i.quantity}${i.unit ? ` ${i.unit}` : ''}`)
+      .join('%0A'); // line breaks for URL
+  }
+
+  function buildEmailLink(r: SupplierRequestDTO) {
+    const ps = prettySupplier(r.supplier);
+    const subject = encodeURIComponent(`Supply Request from Golden Grain Mill`);
+    const greeting = ps.name && ps.name !== '-' ? `Dear ${ps.name},%0A%0A` : '';
+    const bodyPlain =
+      `${greeting}` +
+      `Please find the supply request details below:%0A%0A` +
+      `${itemsAsLines(r)}%0A%0A` +
+      `${r.notes ? `Notes: ${encodeURIComponent(r.notes)}%0A%0A` : ''}` +
+      `Thank you.%0AGolden Grain Mill`;
+    const to = encodeURIComponent(ps.email || '');
+    return `mailto:${to}?subject=${subject}&body=${bodyPlain}`;
+  }
+
+  function normalizePhoneRaw(p?: string) {
+    if (!p) return '';
+    const digits = (p + '').replace(/[^\d+]/g, '');
+    // if starts with 0 and length 10 (LK local), convert to +94
+    if (/^0\d{9}$/.test(digits)) return `+94${digits.slice(1)}`;
+    return digits;
+  }
+
+  function buildWhatsAppLink(r: SupplierRequestDTO) {
+    const ps = prettySupplier(r.supplier);
+    const phone = normalizePhoneRaw(ps.phone);
+    const text =
+      `Supply request from Golden Grain Mill:%0A%0A` +
+      `${itemsAsLines(r)}%0A%0A` +
+      `${r.notes ? `Notes: ${encodeURIComponent(r.notes)}%0A%0A` : ''}` +
+      `Thank you.`;
+    // use wa.me for universal handling
+    return phone ? `https://wa.me/${encodeURIComponent(phone.replace(/^\+/, ''))}?text=${text}` : `https://wa.me/?text=${text}`;
   }
 
   // ---------- Report Generation ----------
@@ -190,7 +275,6 @@ export default function RequestsPage() {
 
   async function generateReport() {
     try {
-      // get fresh list before generating (non-blocking change, uses same endpoint)
       const fresh = await api.get<SupplierRequestDTO[]>('/api/requests');
       const rows = (fresh || []).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
@@ -220,7 +304,6 @@ export default function RequestsPage() {
 
       const startY = Math.max(y, 92);
 
-      // Summary table
       const counts = new Map<string, number>();
       rows.forEach(r => {
         const k = (r.status || 'DRAFT').toUpperCase();
@@ -243,7 +326,6 @@ export default function RequestsPage() {
         tableWidth: 360,
       } as any);
 
-      // Top suppliers by request count
       const bySupplier = new Map<string, number>();
       rows.forEach(r => {
         const ps = prettySupplier(r.supplier);
@@ -264,7 +346,6 @@ export default function RequestsPage() {
         tableWidth: 360,
       } as any);
 
-      // Detailed table (new page)
       doc.addPage('a4', 'landscape');
       autoTable(doc, {
         startY: 40,
@@ -361,6 +442,10 @@ export default function RequestsPage() {
             <tbody>
               {list.map(r => {
                 const ps = prettySupplier(r.supplier);
+                const emailHref = buildEmailLink(r);
+                const waHref = buildWhatsAppLink(r);
+                const hasEmail = !!ps.email;
+                const hasPhone = !!normalizePhoneRaw(ps.phone);
                 return (
                   <tr key={r._id} className="border-t hover:bg-slate-50/50">
                     <td className="px-4 py-3">
@@ -387,10 +472,38 @@ export default function RequestsPage() {
                       {r.createdAt ? new Date(r.createdAt).toLocaleString() : '-'}
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {/* WhatsApp quick compose
+                      <a
+                        href={waHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`inline-flex items-center gap-1 border rounded-lg px-2.5 py-1.5 mr-2 transition
+                          ${hasPhone ? 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100' : 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed'}`}
+                        title={hasPhone ? 'Send on WhatsApp' : 'Supplier has no phone/WhatsApp number'}
+                        onClick={(e) => { if (!hasPhone) e.preventDefault(); }}
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        WhatsApp
+                      </a> */}
+
+                      {/* Email quick compose */}
+                      <a
+                        href={emailHref}
+                        className={`inline-flex items-center gap-1 border rounded-lg px-2.5 py-1.5 mr-2 transition
+                          ${hasEmail ? 'border-sky-200 text-sky-700 bg-sky-50 hover:bg-sky-100' : 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed'}`}
+                        title={hasEmail ? 'Send Email' : 'Supplier has no email'}
+                        onClick={(e) => { if (!hasEmail) e.preventDefault(); }}
+                      >
+                        <Mail className="w-4 h-4" />
+                        Email
+                      </a>
+
+                      {/* Delete */}
                       <button
                         onClick={async () => {
                           await api.delete(`/api/requests/${r._id}`);
                           setList(prev => prev.filter(x => x._id !== r._id));
+                          push({ title: 'Request deleted', desc: `Request removed successfully.` });
                         }}
                         className="inline-flex items-center gap-1 border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg px-2.5 py-1.5 transition"
                         title="Delete"
@@ -460,13 +573,15 @@ export default function RequestsPage() {
                     ))}
                   </select>
                   <input
-                    className={`border rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300 ${fieldErrors.items?.[idx]?.category ? 'border-rose-300' : 'border-slate-300'}`}
+                    className={`border rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300 ${fieldErrors.items?.[idx]?.category ? 'border-rose-300' : 'border-slate-300'} bg-slate-50 text-slate-500 cursor-not-allowed`}
                     placeholder="category"
                     value={it.category || ''}
                     onChange={e => {
                       const v = e.target.value;
                       setItems(arr => arr.map((x,i)=> i===idx? {...x, category:v || undefined}:x));
                     }}
+                    disabled
+                    readOnly
                   />
                   <input
                     type="number"
@@ -482,14 +597,15 @@ export default function RequestsPage() {
                     required
                   />
                   <input
-                    className={`border rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300 ${fieldErrors.items?.[idx]?.unit ? 'border-rose-300' : 'border-slate-300'}`}
+                    className={`border rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300 ${fieldErrors.items?.[idx]?.unit ? 'border-rose-300' : 'border-slate-300'} bg-slate-50 text-slate-500 cursor-not-allowed`}
                     placeholder="unit"
                     value={it.unit || ''}
                     onChange={e => {
                       const v = e.target.value;
                       setItems(arr => arr.map((x,i)=> i===idx? {...x, unit:v || undefined}:x));
                     }}
-                    required
+                    disabled
+                    readOnly
                   />
                   <button
                     type="button"
@@ -547,17 +663,16 @@ export default function RequestsPage() {
             <div className="text-xs text-slate-500">
               By submitting, a new supplier request will be created{sendEmail ? ' and an email will be sent to the supplier.' : '.'}
             </div>
-
-            {/* Modal footer is handled by <Modal/> via onSubmit; we just ensure validations run */}
-            {/* Disable submit visually by reflecting saving state via parent Modal's default buttons */}
           </div>
 
-          {/* We intercept Modal's submit via our submit() above; ensure disabled state shows */}
           <style>{`
             button[type="submit"] { ${saving ? 'opacity: 0.7; pointer-events: none;' : ''} }
           `}</style>
         </Modal>
       </div>
+
+      {/* Toasts */}
+      <ToastStack toasts={toasts} />
     </div>
   );
 }
