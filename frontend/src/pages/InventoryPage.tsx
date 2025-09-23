@@ -58,6 +58,144 @@ function ToastStack({ toasts }: { toasts: Toast[] }) {
 }
 /* ----------------------------------------------------------------------- */
 
+/* -------------------------- Simple SVG Charts -------------------------- */
+type BarDatum = { label: string; value: number };
+function BarChart({
+  data,
+  title,
+  maxBars = 8,
+  height = 220,
+}: {
+  data: BarDatum[];
+  title?: string;
+  maxBars?: number;
+  height?: number;
+}) {
+  const bars = data.slice(0, maxBars);
+  const max = Math.max(1, ...bars.map((b) => b.value));
+  const barW = 36;
+  const gap = 20;
+  const width = bars.length * (barW + gap) + gap;
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow transition">
+      {title && <div className="text-sm font-semibold text-slate-700 mb-3">{title}</div>}
+      <svg width={width} height={height} className="block overflow-visible">
+        {/* axis */}
+        <line x1={0} y1={height - 24} x2={width} y2={height - 24} stroke="#e5e7eb" />
+        {bars.map((b, i) => {
+          const h = Math.round(((height - 60) * b.value) / max);
+          const x = gap + i * (barW + gap);
+          const y = height - 24 - h;
+          return (
+            <g key={b.label} transform={`translate(${x}, ${y})`}>
+              <rect
+                width={barW}
+                height={h}
+                rx={8}
+                className="fill-sky-400/80"
+              />
+              <text
+                x={barW / 2}
+                y={h + 14}
+                textAnchor="middle"
+                className="fill-slate-500 text-[10px]"
+              >
+                {b.label.length > 8 ? b.label.slice(0, 7) + '…' : b.label}
+              </text>
+              <text
+                x={barW / 2}
+                y={-6}
+                textAnchor="middle"
+                className="fill-slate-700 text-[10px] font-medium"
+              >
+                {b.value}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="text-[11px] text-slate-500 mt-2">Top {Math.min(maxBars, data.length)} by total quantity</div>
+    </div>
+  );
+}
+
+type PieSlice = { label: string; value: number; color: string };
+function PieChart({
+  data,
+  size = 220,
+  title,
+}: {
+  data: PieSlice[];
+  size?: number;
+  title?: string;
+}) {
+  const total = Math.max(1, data.reduce((a, b) => a + b.value, 0));
+  const r = size / 2;
+  const ir = r * 0.64; // inner radius for donut
+  let angle = -Math.PI / 2;
+
+  function arcPath(cx: number, cy: number, r1: number, r2: number, start: number, end: number) {
+    const large = end - start > Math.PI ? 1 : 0;
+    const x1o = cx + r1 * Math.cos(start);
+    const y1o = cy + r1 * Math.sin(start);
+    const x2o = cx + r1 * Math.cos(end);
+    const y2o = cy + r1 * Math.sin(end);
+    const x1i = cx + r2 * Math.cos(end);
+    const y1i = cy + r2 * Math.sin(end);
+    const x2i = cx + r2 * Math.cos(start);
+    const y2i = cy + r2 * Math.sin(start);
+    return `
+      M ${x1o} ${y1o}
+      A ${r1} ${r1} 0 ${large} 1 ${x2o} ${y2o}
+      L ${x1i} ${y1i}
+      A ${r2} ${r2} 0 ${large} 0 ${x2i} ${y2i}
+      Z
+    `;
+  }
+
+  const cx = r;
+  const cy = r;
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow transition">
+      {title && <div className="text-sm font-semibold text-slate-700 mb-3">{title}</div>}
+      <div className="flex items-center gap-6">
+        <svg width={size} height={size} className="block">
+          {data.map((s, idx) => {
+            const slice = (s.value / total) * Math.PI * 2;
+            const start = angle;
+            const end = angle + slice;
+            angle = end;
+            return (
+              <path key={idx} d={arcPath(cx, cy, r - 2, ir, start, end)} fill={s.color} stroke="white" strokeWidth={1} />
+            );
+          })}
+          {/* center text */}
+          <circle cx={cx} cy={cy} r={ir - 1} fill="transparent" />
+          <text x={cx} y={cy - 4} textAnchor="middle" className="fill-slate-900 text-sm font-semibold">
+            {total}
+          </text>
+          <text x={cx} y={cy + 12} textAnchor="middle" className="fill-slate-500 text-[11px]">
+            items
+          </text>
+        </svg>
+
+        <div className="space-y-2 text-sm">
+          {data.map((s) => (
+            <div key={s.label} className="flex items-center gap-2">
+              <span className="w-3.5 h-3.5 rounded-sm" style={{ background: s.color }} />
+              <span className="text-slate-700 w-32">{s.label}</span>
+              <span className="text-slate-500">{s.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+/* ----------------------------------------------------------------------- */
+
 export default function InventoryPage() {
   const [list, setList] = useState<StockDTO[]>([]);
   const [loading, setLoading] = useState(false);
@@ -211,6 +349,51 @@ export default function InventoryPage() {
     };
   }, [list]);
 
+  // ---------- Chart data (do not alter above logic) ----------
+  const barData: BarDatum[] = useMemo(() => {
+    const byCat = new Map<string, number>();
+    for (const r of list) {
+      const key = r.category || 'Uncategorized';
+      byCat.set(key, (byCat.get(key) ?? 0) + (Number(r.quantity) || 0));
+    }
+    return Array.from(byCat.entries())
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [list]);
+
+  const pieData: PieSlice[] = useMemo(() => {
+    const now = new Date();
+    const nearCutoff = new Date();
+    nearCutoff.setDate(now.getDate() + ANALYSIS_DAYS);
+
+    let expired = 0;
+    let near = 0;
+    let low = 0;
+    let healthy = 0;
+
+    for (const r of list) {
+      const hasExpiry = !!r.expiryDate;
+      const d = hasExpiry ? new Date(r.expiryDate!) : null;
+
+      if (d && d < now) {
+        expired++;
+      } else if (d && d >= now && d <= nearCutoff) {
+        near++;
+      } else if (r.quantity <= r.threshold) {
+        // treat "low" only if not already counted as expiry states
+        low++;
+      } else {
+        healthy++;
+      }
+    }
+    return [
+      { label: 'Healthy', value: healthy, color: '#10b981' },
+      { label: 'Low', value: low, color: '#f59e0b' },
+      { label: 'Expiring Soon', value: near, color: '#06b6d4' },
+      { label: 'Expired', value: expired, color: '#ef4444' },
+    ];
+  }, [list]);
+
   return (
     <div className="min-h-[calc(100vh-64px)] bg-gradient-to-b from-sky-50 via-white to-sky-50">
       <div className="max-w-7xl mx-auto p-6">
@@ -250,6 +433,16 @@ export default function InventoryPage() {
             </div>
             <div className="mt-2 text-2xl font-semibold text-emerald-900">{analysis.near}</div>
             <div className="text-xs text-emerald-800 mt-1">Within {ANALYSIS_DAYS} days</div>
+          </div>
+        </div>
+
+        {/* Charts (bar + pie) */}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-8">
+          <div className="lg:col-span-3 overflow-x-auto">
+            <BarChart data={barData} title="Quantity by Category (Top 8)" />
+          </div>
+          <div className="lg:col-span-2">
+            <PieChart data={pieData} title="Inventory Health" />
           </div>
         </div>
 
