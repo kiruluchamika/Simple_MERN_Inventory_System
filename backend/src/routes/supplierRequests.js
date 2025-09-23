@@ -10,9 +10,10 @@ const router = Router();
 const itemSchema = Joi.object({
   stock: Joi.string().hex().length(24).optional(),
   name: Joi.string().required(),
+  category: Joi.string().allow('').optional(),
   quantity: Joi.number().required(),
   unit: Joi.string().allow('')
-});
+}).unknown(true); // tolerate extra keys from the client safely
 
 const requestBody = Joi.object({
   supplier: Joi.string().hex().length(24).required(),
@@ -47,20 +48,25 @@ router.post('/', async (req, res) => {
   });
 
   if (value.sendEmail && supplier.email) {
-    const itemsHtml = value.items
-      .map((i) => `<li>${i.name} – ${i.quantity}${i.unit ? ' ' + i.unit : ''}</li>`)
-      .join('');
-    await sendEmail({
-      to: supplier.email,
-      subject: `Request for Quotation – ${supplier.company || supplier.name}`,
-      html: `<p>Dear ${supplier.name},</p>
-             <p>Please provide a quotation for the following items:</p>
-             <ul>${itemsHtml}</ul>
-             ${value.notes ? `<p>Notes: ${value.notes}</p>` : ''}
-             <p>Regards,<br/>Inventory Manager</p>`
-    });
-    doc.emailSentAt = new Date();
-    await doc.save();
+    try {
+      const itemsHtml = value.items
+        .map((i) => `<li>${i.name} – ${i.quantity}${i.unit ? ' ' + i.unit : ''}</li>`)
+        .join('');
+      await sendEmail({
+        to: supplier.email,
+        subject: `Request for Quotation – ${supplier.company || supplier.name}`,
+        html: `<p>Dear ${supplier.name},</p>
+               <p>Please provide a quotation for the following items:</p>
+               <ul>${itemsHtml}</ul>
+               ${value.notes ? `<p>Notes: ${value.notes}</p>` : ''}
+               <p>Regards,<br/>Inventory Manager</p>`
+      });
+      doc.emailSentAt = new Date();
+      await doc.save();
+    } catch (err) {
+      // Do not fail the request on email issues; log and continue
+      console.error('Email send failed:', err?.message || err);
+    }
   }
 
   res.status(201).json(doc);
@@ -89,6 +95,14 @@ router.patch('/:id/status', async (req, res) => {
   );
   if (!doc) throw Object.assign(new Error('Request not found'), { status: 404 });
   res.json(doc);
+});
+
+router.delete('/:id', async (req, res) => {
+  const { error } = idParam.validate(req.params);
+  if (error) throw Object.assign(new Error(error.message), { status: 400 });
+  const del = await SupplierRequest.findByIdAndDelete(req.params.id);
+  if (!del) throw Object.assign(new Error('Request not found'), { status: 404 });
+  res.json({ ok: true });
 });
 
 export default router;

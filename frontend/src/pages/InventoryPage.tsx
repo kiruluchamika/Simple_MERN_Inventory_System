@@ -10,7 +10,7 @@ export default function InventoryPage() {
   const [q, setQ] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [edit, setEdit] = useState<StockDTO | null>(null);
-  const [form, setForm] = useState<StockUpsert>({ itemName: '', quantity: 0, threshold: 0, unit: 'pieces' });
+  const [form, setForm] = useState<StockUpsert>({ itemName: '', quantity: 0, threshold: 0, unit: 'pieces', category: '' });
 
   async function load() {
     setLoading(true);
@@ -21,13 +21,14 @@ export default function InventoryPage() {
 
   function openCreate() {
     setEdit(null);
-    setForm({ itemName: '', quantity: 0, threshold: 0, unit: 'pieces' });
+    setForm({ itemName: '', quantity: 0, threshold: 0, unit: 'pieces', category: '' });
     setModalOpen(true);
   }
   function openEdit(row: StockDTO) {
     setEdit(row);
     setForm({
       itemName: row.itemName,
+      category: row.category ?? '',
       quantity: row.quantity,
       threshold: row.threshold,
       unit: row.unit ?? 'pieces',
@@ -90,6 +91,7 @@ export default function InventoryPage() {
           <thead className="bg-gray-50 text-gray-600">
             <tr>
               <th className="px-4 py-3 text-left">Item</th>
+              <th className="px-4 py-3 text-left">Category</th>
               <th className="px-4 py-3 text-left">Qty</th>
               <th className="px-4 py-3 text-left">Min</th>
               <th className="px-4 py-3 text-left">Unit</th>
@@ -103,6 +105,7 @@ export default function InventoryPage() {
               return (
                 <tr key={row._id} className="border-t">
                   <td className="px-4 py-3">{row.itemName}</td>
+                  <td className="px-4 py-3">{row.category || '-'}</td>
                   <td className="px-4 py-3">{row.quantity}</td>
                   <td className="px-4 py-3">{row.threshold}</td>
                   <td className="px-4 py-3">{row.unit || '-'}</td>
@@ -124,10 +127,10 @@ export default function InventoryPage() {
               );
             })}
             {(!loading && filtered.length === 0) && (
-              <tr><td className="px-4 py-8 text-center text-gray-500" colSpan={6}>No items.</td></tr>
+              <tr><td className="px-4 py-8 text-center text-gray-500" colSpan={7}>No items.</td></tr>
             )}
             {loading && (
-              <tr><td className="px-4 py-8 text-center text-gray-400" colSpan={6}>Loading…</td></tr>
+              <tr><td className="px-4 py-8 text-center text-gray-400" colSpan={7}>Loading…</td></tr>
             )}
           </tbody>
         </table>
@@ -143,6 +146,10 @@ export default function InventoryPage() {
           <label className="flex flex-col text-sm">
             <span className="text-gray-600 mb-1">Item Name</span>
             <input className="border rounded-lg px-3 py-2" value={form.itemName || ''} onChange={e => setForm(f => ({...f, itemName: e.target.value}))} />
+          </label>
+          <label className="flex flex-col text-sm">
+            <span className="text-gray-600 mb-1">Category</span>
+            <input className="border rounded-lg px-3 py-2" value={form.category || ''} onChange={e => setForm(f => ({...f, category: e.target.value || null}))} placeholder="e.g., Hardware, Beverages" />
           </label>
           <label className="flex flex-col text-sm">
             <span className="text-gray-600 mb-1">Unit</span>

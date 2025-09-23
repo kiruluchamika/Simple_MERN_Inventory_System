@@ -13,6 +13,7 @@ const supplierRequestSchema = new Schema(
       {
         stock: { type: Schema.Types.ObjectId, ref: 'Stock' }, // optional link to a stock item
         name: { type: String, required: true },               // fallback free-text
+        category: { type: String },                            // optional category label
         quantity: { type: Number, required: true },
         unit: { type: String } // e.g., kg, pieces
       }

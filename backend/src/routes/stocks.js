@@ -7,10 +7,10 @@ const router = Router();
 
 const stockBody = Joi.object({
   itemName: Joi.string().required(),
-  // Accept either a 24-hex string OR null/empty
+  // Category: accept free-text or legacy ObjectId
   category: Joi.alternatives().try(
-    Joi.string().hex().length(24),
-    Joi.valid(null, '')
+    Joi.string().trim().max(100).allow('', null),
+    Joi.string().hex().length(24)
   ).optional(),
   quantity: Joi.number().required(),
   unit: Joi.string().allow('', null),
