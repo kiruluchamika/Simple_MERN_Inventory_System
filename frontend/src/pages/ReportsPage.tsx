@@ -138,6 +138,7 @@ export default function ReportsPage() {
       );
       y += 18;
 
+      
       const firstStartY = Math.max(y, 92);
 
       // Summary table
